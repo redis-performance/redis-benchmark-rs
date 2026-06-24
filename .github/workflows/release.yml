@@ -18,8 +18,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-      - name: Build static binary (pure Rust, no C toolchain)
+      - name: Build static musl binary
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y musl-tools
           cargo build --release --target x86_64-unknown-linux-musl --no-default-features
           cp target/x86_64-unknown-linux-musl/release/redis-benchmark-rs redis-benchmark-rs-x86_64-musl
       - uses: softprops/action-gh-release@v2

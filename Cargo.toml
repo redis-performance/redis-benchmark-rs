@@ -37,6 +37,7 @@ rand_distr = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 [features]
 # mimalloc is on by default (gnu builds); the static musl binary builds with

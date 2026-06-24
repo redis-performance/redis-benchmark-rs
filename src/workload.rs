@@ -1,4 +1,4 @@
-use crate::cli::Args;
+use crate::cli::{Args, KeyPattern};
 use crate::conn::AnyConn;
 use crate::keygen::KeyGen;
 use crate::realtime::Realtime;
@@ -17,19 +17,29 @@ pub async fn run_worker(
     args: Args,
     seed: u64,
     idx: usize,
+    total: usize,
     deadline: Instant,
     rt: Arc<Realtime>,
 ) -> WorkerStats {
     let (set_w, get_w) = args.parse_ratio().unwrap_or((0, 1));
     let total_w = set_w as u64 + get_w as u64;
     let mut rng = SmallRng::seed_from_u64(seed);
-    let mut kg = KeyGen::new(
-        &args.key_prefix,
-        args.key_minimum,
-        args.key_maximum,
-        args.key_pattern,
-    );
+    // Sequential mode partitions the keyspace across workers (memtier-style) so
+    // together they cover [min,max] exactly once — essential for preloading.
+    let (kmin, kmax) = if args.key_pattern == KeyPattern::Sequential && total > 1 {
+        let lo = args.key_minimum.min(args.key_maximum);
+        let hi = args.key_minimum.max(args.key_maximum);
+        let span = hi - lo + 1;
+        let per = span.div_ceil(total as u64);
+        let wlo = lo + (idx as u64) * per;
+        let whi = (wlo + per - 1).min(hi);
+        (wlo.min(hi), whi)
+    } else {
+        (args.key_minimum, args.key_maximum)
+    };
+    let mut kg = KeyGen::new(&args.key_prefix, kmin, kmax, args.key_pattern);
     let payload = vec![b'x'; args.data_size];
+    let expiry = args.expiry().unwrap_or(None);
     let pipeline = args.pipeline.max(1);
     let mut stats = WorkerStats::new();
 
@@ -55,6 +65,9 @@ pub async fn run_worker(
             cmd.arg(&key);
             if is_set {
                 cmd.arg(&payload);
+                if let Some((lo, hi)) = expiry {
+                    cmd.arg("EX").arg(rng.gen_range(lo..=hi));
+                }
             }
             let start = Instant::now();
             match conn.run(&cmd).await {
@@ -74,6 +87,9 @@ pub async fn run_worker(
                 let key = kg.next(&mut rng);
                 if is_set {
                     pipe.cmd("SET").arg(&key).arg(&payload);
+                    if let Some((lo, hi)) = expiry {
+                        pipe.arg("EX").arg(rng.gen_range(lo..=hi));
+                    }
                 } else {
                     pipe.cmd("GET").arg(&key);
                 }

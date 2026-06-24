@@ -20,11 +20,13 @@ redis-benchmark-rs -h <host> -p <port> [flags]
 | `--tls` / `--tls-skip-verify` | enable TLS / skip cert verification |
 | `--cacert`/`--cert`/`--key` | CA / client cert / key (verified TLS — planned) |
 | `--user` / `-a, --password` | AUTH username / password |
+| `--resp` | RESP protocol version `2` or `3` (default 2) |
 | `-t, --threads` / `-c, --connections` | worker threads × connections-per-thread |
 | `--ratio` | `set:get` (default `0:1` = pure GET; `1:10` = 1 SET / 10 GET) |
 | `--key-pattern` | `R` random · `S` sequential · `G` gaussian |
 | `--key-prefix` / `--key-minimum` / `--key-maximum` | key namespace and id range |
 | `--data-size` | SET payload size in bytes (write side only) |
+| `--expiry-range` | `min-max` seconds — SETs get a random TTL in that range (memtier-style); use with `--ratio 1:0` to preload an expiring keyspace |
 | `--pipeline` | in-flight commands per connection (forced to 1 in `--cluster-mode`) |
 | `--rate-limiting` | per-connection **commands/sec** (0 = unlimited); aggregate ≈ `rate × threads × connections` |
 | `--test-time` | duration (seconds) |

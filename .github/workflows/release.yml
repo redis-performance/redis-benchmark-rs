@@ -44,7 +44,8 @@ jobs:
         run: |
           set -e
           if command -v yum >/dev/null; then
-            yum install -y gcc make curl
+            # --allowerasing: Rocky 9 ships curl-minimal which conflicts with curl
+            yum install -y --allowerasing gcc make curl
           else
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq && apt-get install -y gcc make curl ca-certificates

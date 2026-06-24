@@ -81,6 +81,30 @@ async fn pure_get_does_no_writes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn preload_with_expiry_then_get_hits() {
+    let (host, port) = redis_addr();
+    if !reachable(&host, port) {
+        eprintln!("SKIP: no redis at {host}:{port}");
+        return;
+    }
+    // preload: pure SET with a random TTL
+    let mut pre = base_args(&host, port);
+    pre.ratio = "1:0".into();
+    pre.expiry_range = Some("100-200".into());
+    pre.key_prefix = "rbench-it-exp:".into();
+    pre.key_pattern = KeyPattern::Sequential;
+    let p = redis_benchmark_rs::run(pre).await.expect("preload ok");
+    assert!(p.sets > 0 && p.set_err == 0);
+
+    // read back: GETs should hit the keys we just wrote
+    let mut get = base_args(&host, port);
+    get.ratio = "0:1".into();
+    get.key_prefix = "rbench-it-exp:".into();
+    let g = redis_benchmark_rs::run(get).await.expect("get ok");
+    assert!(g.get_hits > 0, "expected hits after TTL preload");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rate_limiting_caps_throughput() {
     let (host, port) = redis_addr();
     if !reachable(&host, port) {

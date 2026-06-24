@@ -55,14 +55,36 @@ fn url(args: &Args) -> String {
         (None, None) => String::new(),
     };
     let mut u = format!("{scheme}://{auth}{}:{}", args.host, args.port);
-    if args.tls && args.tls_skip_verify {
-        u.push_str("/#insecure");
+    let frag = if args.tls && args.tls_skip_verify {
+        "#insecure"
+    } else {
+        ""
+    };
+    if args.resp == 3 {
+        u.push_str("/?protocol=resp3");
+        u.push_str(frag);
+    } else if !frag.is_empty() {
+        u.push('/');
+        u.push_str(frag);
     }
     u
 }
 
+/// rustls 0.23 needs a process-level CryptoProvider installed before any TLS
+/// handshake; the redis crate's rustls feature doesn't install one for us.
+fn ensure_crypto_provider() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
 /// Open one connection according to the CLI (single endpoint or cluster).
 pub async fn connect(args: &Args) -> Result<AnyConn> {
+    if args.tls {
+        ensure_crypto_provider();
+    }
     if args.tls && (args.cacert.is_some() || args.cert.is_some()) && !args.tls_skip_verify {
         // mTLS / custom-CA path is a follow-up milestone; insecure TLS is supported now.
         anyhow::bail!(

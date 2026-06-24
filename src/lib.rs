@@ -94,7 +94,8 @@ pub async fn run(mut args: cli::Args) -> anyhow::Result<stats::WorkerStats> {
             match conn::connect(&args).await {
                 Ok(c) => {
                     conn_ok.fetch_add(1, Ordering::Relaxed);
-                    workload::run_worker(c, (*args).clone(), seed, i, deadline, realtime).await
+                    workload::run_worker(c, (*args).clone(), seed, i, total, deadline, realtime)
+                        .await
                 }
                 Err(e) => {
                     eprintln!("connection {i} failed: {e:#}");

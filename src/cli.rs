@@ -71,6 +71,10 @@ pub struct Args {
     #[arg(short = 'a', long)]
     pub password: Option<String>,
 
+    /// RESP protocol version: 2 or 3 (memtier -P parity)
+    #[arg(long, default_value_t = 2)]
+    pub resp: u8,
+
     /// Number of worker threads
     #[arg(short = 't', long, default_value_t = 4)]
     pub threads: usize,
@@ -102,6 +106,10 @@ pub struct Args {
     /// SET payload size in bytes (only used when --ratio has writes)
     #[arg(long, default_value_t = 32)]
     pub data_size: usize,
+
+    /// Set keys with a random expiry (seconds) from RANGE = min-max (e.g. 100-3600), like memtier
+    #[arg(long, value_name = "RANGE")]
+    pub expiry_range: Option<String>,
 
     /// Pipeline depth (in-flight commands per connection)
     #[arg(long, default_value_t = 1)]
@@ -151,12 +159,28 @@ impl Args {
         Ok((s, g))
     }
 
+    /// Parse `--expiry-range=min-max` into (min, max) seconds, if set.
+    pub fn expiry(&self) -> anyhow::Result<Option<(u64, u64)>> {
+        let Some(s) = &self.expiry_range else {
+            return Ok(None);
+        };
+        let (a, b) = s
+            .split_once('-')
+            .ok_or_else(|| anyhow::anyhow!("--expiry-range must be min-max, e.g. 100-3600"))?;
+        let lo: u64 = a.trim().parse()?;
+        let hi: u64 = b.trim().parse()?;
+        anyhow::ensure!(lo >= 1 && hi >= lo, "--expiry-range needs 1 <= min <= max");
+        Ok(Some((lo, hi)))
+    }
+
     /// Validate all inputs up front; returns a clear error for bad values/combos.
     pub fn validate(&self) -> anyhow::Result<()> {
         self.parse_ratio()?;
+        self.expiry()?;
         anyhow::ensure!(self.threads > 0, "--threads must be > 0");
         anyhow::ensure!(self.connections > 0, "--connections must be > 0");
         anyhow::ensure!(self.test_time > 0, "--test-time must be > 0");
+        anyhow::ensure!(self.resp == 2 || self.resp == 3, "--resp must be 2 or 3");
         for tok in self.print_percentiles.split(',') {
             let tok = tok.trim();
             if tok.is_empty() {
@@ -250,5 +274,26 @@ mod tests {
         let mut a = defaults();
         a.ratio = "4000000000:4000000000".into(); // s+g overflows u32
         let _ = a.parse_ratio(); // must not panic
+    }
+
+    #[test]
+    fn expiry_range_parse() {
+        let mut a = defaults();
+        assert_eq!(a.expiry().unwrap(), None);
+        a.expiry_range = Some("100-3600".into());
+        assert_eq!(a.expiry().unwrap(), Some((100, 3600)));
+        a.expiry_range = Some("3600-100".into()); // min > max
+        assert!(a.expiry().is_err());
+        a.expiry_range = Some("nope".into());
+        assert!(a.expiry().is_err());
+    }
+
+    #[test]
+    fn validate_resp_version() {
+        let mut a = defaults();
+        a.resp = 3;
+        assert!(a.validate().is_ok());
+        a.resp = 4;
+        assert!(a.validate().is_err());
     }
 }

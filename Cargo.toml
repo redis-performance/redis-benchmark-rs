@@ -1,0 +1,72 @@
+[package]
+name = "redis-benchmark-rs"
+version = "0.1.0"
+edition = "2021"
+description = "memtier-style Redis benchmark (GET-focused) — OSS-cluster or single-endpoint, TLS, rate-limiting, key-prefix/min/max."
+license = "MIT"
+repository = "https://github.com/redis-performance/redis-benchmark-rs"
+readme = "README.md"
+
+[lib]
+name = "redis_benchmark_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "redis-benchmark-rs"
+path = "src/main.rs"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+clap = { version = "4", features = ["derive"] }
+redis = { version = "1.0.4", default-features = false, features = ["tokio-comp"] }
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
+redis = { version = "1.0.4", default-features = false, features = [
+    "tokio-comp",
+    "cluster",
+    "cluster-async",
+    "tls-rustls",
+    "tls-rustls-insecure",
+    "tokio-rustls-comp",
+] }
+clap = { version = "4", features = ["derive"] }
+hdrhistogram = "7"
+rand = { version = "0.8", features = ["small_rng"] }
+rand_distr = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+[features]
+# mimalloc is on by default (gnu builds); the static musl binary builds with
+# --no-default-features so it needs no C toolchain (pure Rust, rustls).
+default = ["mimalloc"]
+mimalloc = ["dep:mimalloc"]
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+mimalloc = { version = "0.1", default-features = false, optional = true }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# ---- Debian packaging (cargo-deb) : jammy / noble ----
+[package.metadata.deb]
+maintainer = "Redis Performance <perf@redis.com>"
+copyright = "2026, Redis Ltd."
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/redis-benchmark-rs", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/redis-benchmark-rs/README.md", "644"],
+]
+
+# ---- RPM packaging (cargo-generate-rpm) : el8 / el9 ----
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/redis-benchmark-rs", dest = "/usr/bin/redis-benchmark-rs", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/redis-benchmark-rs/README.md", mode = "644", doc = true },
+]

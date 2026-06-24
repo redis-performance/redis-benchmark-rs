@@ -1,0 +1,87 @@
+name: release
+
+# Tag a release: `git tag v0.1.0 && git push --tags`
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  # 1) Universal static musl binary — runs on RHEL8/9, Ubuntu 22.04/24.04, anything.
+  musl-binary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Build static binary (pure Rust, no C toolchain)
+        run: |
+          cargo build --release --target x86_64-unknown-linux-musl --no-default-features
+          cp target/x86_64-unknown-linux-musl/release/redis-benchmark-rs redis-benchmark-rs-x86_64-musl
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: redis-benchmark-rs-x86_64-musl
+
+  # 2) Native per-distro packages (el8, el9, jammy, noble) — mirrors the memtier artifact set.
+  packages:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: rockylinux:8
+            kind: rpm
+            dist: el8
+          - image: rockylinux:9
+            kind: rpm
+            dist: el9
+          - image: ubuntu:22.04
+            kind: deb
+            dist: jammy
+          - image: ubuntu:24.04
+            kind: deb
+            dist: noble
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain + packaging deps
+        shell: bash
+        run: |
+          set -e
+          if [ "${{ matrix.kind }}" = "rpm" ]; then
+            yum install -y gcc make curl rpm-build
+          else
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq && apt-get install -y gcc make curl ca-certificates
+          fi
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          . "$HOME/.cargo/env"
+          if [ "${{ matrix.kind }}" = "rpm" ]; then
+            cargo install cargo-generate-rpm
+          else
+            cargo install cargo-deb
+          fi
+      - name: Build + package
+        shell: bash
+        run: |
+          . "$HOME/.cargo/env"
+          cargo build --release
+          if [ "${{ matrix.kind }}" = "rpm" ]; then
+            cargo generate-rpm
+            mkdir -p out && cp target/generate-rpm/*.rpm out/
+            for f in out/*.rpm; do mv "$f" "${f%.rpm}.${{ matrix.dist }}.rpm"; done
+          else
+            cargo deb
+            mkdir -p out && cp target/debian/*.deb out/
+            for f in out/*.deb; do mv "$f" "${f%.deb}.${{ matrix.dist }}.deb"; done
+          fi
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: out/*
